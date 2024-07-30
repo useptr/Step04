@@ -32,7 +32,7 @@
 //----- ObjectARX EntryPoint
 class CStep04App : public AcRxArxApp {
 private:
-	static const TCHAR* m_employeeDictionaryName;
+	static const TCHAR* g_szEmployeeDictionaryName;
 public:
 	CStep04App() : AcRxArxApp() {}
 
@@ -61,156 +61,128 @@ public:
 	virtual void RegisterServerComponents() {
 	}
 
-	// The ACED_ARXCOMMAND_ENTRY_AUTO macro can be applied to any static member 
-	// function of the CStep04App class.
-	// The function should take no arguments and return nothing.
-	//
-	// NOTE: ACED_ARXCOMMAND_ENTRY_AUTO has overloads where you can provide resourceid and
-	// have arguments to define context and command mechanism.
-
-	// ACED_ARXCOMMAND_ENTRY_AUTO(classname, group, globCmd, locCmd, cmdFlags, UIContext)
-	// ACED_ARXCOMMAND_ENTRYBYID_AUTO(classname, group, globCmd, locCmdId, cmdFlags, UIContext)
-	// only differs that it creates a localized name using a string in the resource file
-	//   locCmdId - resource ID for localized command
-
 	static void AsdkStep04_ADDENTRY(void)
 	{
 		// Prompt the user for an employee name 
-		TCHAR employeeName[128];
-		if (acedGetString(0, _T("Enter employee name: "), employeeName) != RTNORM)
+		TCHAR szEmployeeName[128];
+		if (acedGetString(0, _T("Enter employee name: "), szEmployeeName) != RTNORM)
 			return;
 		// Get the Named Objects Dictionary from the current working database 
-		AcDbDictionary* pNamedObjectsDictionary{ nullptr };
-		if (acdbHostApplicationServices()->workingDatabase()->getNamedObjectsDictionary(pNamedObjectsDictionary) != Acad::eOk)
-		{
-			acutPrintf(_T("\nERROR: Unable to get the Named Objects Dictionary"));
+		AcDbDictionaryPointer pNamedObjectsDictionary(acdbHostApplicationServices()->workingDatabase()->namedObjectsDictionaryId());
+		if (pNamedObjectsDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open the Named Objects Dictionary"));
 			return;
 		}
-		// pNamedObjectsDictionary succesfully opened
-		AcDbDictionary* pEmployeeDictionary{ nullptr };
+		AcDbDictionaryPointer pEmployeeDictionary;
 		// Check if the "ASDK_EMPLOYEE_DICTIONARY" is already in the NOD 
-		// getAt return Acad::eOk, Acad::eInvalidKey, Acad::eKeyNotFound 
-		if (Acad::eKeyNotFound == pNamedObjectsDictionary->getAt(m_employeeDictionaryName, pEmployeeDictionary)) {
+		AcDbObjectId employeeDictionaryId{ AcDbObjectId::kNull };
+		if (Acad::eKeyNotFound == pNamedObjectsDictionary->getAt(g_szEmployeeDictionaryName, employeeDictionaryId)) {
 			if (pNamedObjectsDictionary->upgradeOpen() != Acad::eOk) {
 				acutPrintf(_T("\nERROR: Cannot write to the Named Objects Dictionary"));
-				pNamedObjectsDictionary->close();
 				return;
 			}
-			// TODO put dictionary cretion in a seperate function
-			pEmployeeDictionary = new AcDbDictionary;
-			if (pNamedObjectsDictionary->setAt(m_employeeDictionaryName, pEmployeeDictionary, pEmployeeDictionary->objectId()) != Acad::eOk) {
-				acutPrintf(_T("\nCannot add %s dictionary in the Named Objects Dictionary"), m_employeeDictionaryName);
-				delete pEmployeeDictionary;
-				pNamedObjectsDictionary->close();
+			pEmployeeDictionary.create();
+			if (pNamedObjectsDictionary->setAt(g_szEmployeeDictionaryName, pEmployeeDictionary.object(), pEmployeeDictionary->objectId()) != Acad::eOk) {
+				acutPrintf(_T("\nCannot add %s dictionary in the Named Objects Dictionary"), g_szEmployeeDictionaryName);
 				return;
 			}
+		} else {
+			pEmployeeDictionary.open(employeeDictionaryId);
 		}
-		if (nullptr == pEmployeeDictionary) {
-			acutPrintf(_T("\nERROR: Cannot open %s"), m_employeeDictionaryName);
-			pNamedObjectsDictionary->close();
+		if (pEmployeeDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open %s"), g_szEmployeeDictionaryName);
 			return;
 		}
-		// pEmployeeDictionary succesfully opened
-		pNamedObjectsDictionary->close();
 		// Check if the name of the employee is already in the "ASDK_EMPLOYEE_DICTIONARY" dictionary
-		AcDbObjectId objectId; // TODO kNULL
-		if (pEmployeeDictionary->getAt(employeeName, objectId) == Acad::eOk) {
+		AcDbObjectId objectId{ AcDbObjectId::kNull };
+		if (pEmployeeDictionary->getAt(szEmployeeName, objectId) == Acad::eOk) {
 			acutPrintf(_T("\nERROR: This employee is already registered"));
-			pEmployeeDictionary->close();
 			return;
 		}
 		// If the employee dictionary is not present, then create a new AcDbXrecord and add it to the "ASDK_EMPLOYEE_DICTIONARY" 
 		if (!pEmployeeDictionary->isWriteEnabled() && pEmployeeDictionary->upgradeOpen() != Acad::eOk) {
-			acutPrintf(_T("\nERROR: Cannot opened %s to write"), m_employeeDictionaryName);
-			pEmployeeDictionary->close();
+			acutPrintf(_T("\nERROR: Cannot opened %s to write"), g_szEmployeeDictionaryName);
 			return;
 		}
-		AcDbXrecord* pEmployeeEntry = new AcDbXrecord;
-		if (pEmployeeDictionary->setAt(employeeName, pEmployeeEntry, pEmployeeEntry->objectId()) != Acad::eOk) {
-			acutPrintf(_T("\nERROR: Failed to add employee %s to %s"), employeeName, m_employeeDictionaryName);
-			delete pEmployeeEntry;
-			pEmployeeDictionary->close();
+		AcDbObjectPointer<AcDbXrecord> pEmployeeEntry;
+		pEmployeeEntry.create();
+		if (pEmployeeDictionary->setAt(szEmployeeName, pEmployeeEntry.object(), pEmployeeEntry->objectId()) != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Failed to add employee %s to %s"), szEmployeeName, g_szEmployeeDictionaryName);
 			return;
 		}
-		acutPrintf(_T("\nemployee %s successfully added to %s"), employeeName, m_employeeDictionaryName);
-		pEmployeeEntry->close();
-		pEmployeeDictionary->close();
+		acutPrintf(_T("\nemployee %s successfully added to %s"), szEmployeeName, g_szEmployeeDictionaryName);
 	}
 
 	static void AsdkStep04_LISTENTRIES(void) {
-		AcDbDictionary* pNamedObjectsDictionary;
 		// Get the Named Objects Dictionary from the current working database 
-		if (acdbHostApplicationServices()->workingDatabase()->getNamedObjectsDictionary(pNamedObjectsDictionary) != Acad::eOk) {
-			acutPrintf(_T("\nERROR: Unable to get the Named Objects Dictionary"));
+		AcDbDictionaryPointer pNamedObjectsDictionary(acdbHostApplicationServices()->workingDatabase()->namedObjectsDictionaryId());
+		if (pNamedObjectsDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open the Named Objects Dictionary"));
 			return;
 		}
-		// pNamedObjectsDictionary succesfully opened 
-		AcDbDictionary* pEmployeeDictionary;
+		AcDbObjectId employeeDictionaryId;
 		// Get the "ASDK_EMPLOYEE_DICTIONARY" dictionary 
-		if (pNamedObjectsDictionary->getAt(m_employeeDictionaryName, pEmployeeDictionary) != Acad::eOk)
+		if (pNamedObjectsDictionary->getAt(g_szEmployeeDictionaryName, employeeDictionaryId) != Acad::eOk)
 		{
-			acutPrintf(_T("\nERROR: %s not found"), m_employeeDictionaryName);
+			acutPrintf(_T("\nERROR: '%s' not found"), g_szEmployeeDictionaryName);
 			pNamedObjectsDictionary->close();
 			return;
 		}
-		// pEmployeeDictionary succesfully opened 
-		pNamedObjectsDictionary->close();
+		AcDbDictionaryPointer pEmployeeDictionary(employeeDictionaryId);
+		if (pEmployeeDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open %s"), g_szEmployeeDictionaryName);
+			return;
+		}
 		// Create a new iterator
-		AcDbDictionaryIterator* pIter{ pEmployeeDictionary->newIterator() };
+		std::unique_ptr <AcDbDictionaryIterator> pIter(pEmployeeDictionary->newIterator());
 		if (pIter == nullptr) {
 			acutPrintf(_T("\nERROR: Cannot create AcDbDictionaryIterator"));
-			pEmployeeDictionary->close();
 			return;
 		}
 		for (; !pIter->done(); pIter->next()) // Iterate through the ASDK_EMPLOYEE_DICTIONARY
 			acutPrintf(_T("\nEmployee name: %s"), pIter->name()); // Print the dictionary key 
-		delete pIter;
-		pEmployeeDictionary->close();
 	}
 
 	static void AsdkStep04_REMOVEENTRY(void) {
 		// Get an employee name from the user 
-		TCHAR employeeName[128];
-		if (acedGetString(NULL, _T("\nEnter employee name: "), employeeName) != RTNORM)
+		TCHAR szEmployeeName[128];
+		if (acedGetString(NULL, _T("\nEnter employee name: "), szEmployeeName) != RTNORM)
 			return;
 		// Get the Named Objects Dictionary from the current working database 
-		AcDbDictionary* pNamedObjectsDictionary;
-		if (acdbHostApplicationServices()->workingDatabase()->getNamedObjectsDictionary(pNamedObjectsDictionary) != Acad::eOk)
-		{
-			acutPrintf(_T("\nERROR: Unable to get the Named Objects Dictionary"));
+		AcDbDictionaryPointer pNamedObjectsDictionary(acdbHostApplicationServices()->workingDatabase()->namedObjectsDictionaryId());
+		if (pNamedObjectsDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open the Named Objects Dictionary"));
 			return;
 		}
-		// pNamedObjectsDictionary successfully opened
 		// Get the "ASDK_EMPLOYEE_DICTIONARY" dictionary
-		AcDbDictionary* pEmployeeDictionary;
-		if (pNamedObjectsDictionary->getAt(m_employeeDictionaryName, pEmployeeDictionary) != Acad::eOk)
+		AcDbObjectId employeeDictionaryId{ AcDbObjectId::kNull };
+		if (pNamedObjectsDictionary->getAt(g_szEmployeeDictionaryName, employeeDictionaryId) != Acad::eOk)
 		{
-			acutPrintf(_T("\nERROR: %s not found"), m_employeeDictionaryName);
-			pNamedObjectsDictionary->close();
+			acutPrintf(_T("\nERROR: %s not found"), g_szEmployeeDictionaryName);
 			return;
 		}
-		pNamedObjectsDictionary->close();
-		// pEmployeeDictionary successfully opened
-		AcDbXrecord* pXrecord;
-		if (pEmployeeDictionary->getAt(employeeName, pXrecord, AcDb::kForWrite) != Acad::eOk) {
-			acutPrintf(_T("\nERROR: Employee %s not found"), employeeName); // Acad::eKeyNotFound or Invalid name
+		AcDbDictionaryPointer pEmployeeDictionary(employeeDictionaryId);
+		if (pEmployeeDictionary.openStatus() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Cannot open %s"), g_szEmployeeDictionaryName);
+			return;
+		}
+		
+		AcDbObjectId employeeEntryId{ AcDbObjectId::kNull };
+		if (pEmployeeDictionary->getAt(szEmployeeName, employeeEntryId) != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Employee %s not found"), szEmployeeName); // Acad::eKeyNotFound or Invalid name
 			pEmployeeDictionary->close();
 			return;
 		}
-		// pXrecord successfully opened
-		pEmployeeDictionary->close();
-		if (pXrecord->erase() != Acad::eOk) {
-			acutPrintf(_T("\nERROR: Unable to erase employee %s"), employeeName);
-			pXrecord->close();
+		AcDbObjectPointer<AcDbXrecord> pEmployeeEntry(employeeEntryId, AcDb::kForWrite);
+		if (pEmployeeEntry->erase() != Acad::eOk) {
+			acutPrintf(_T("\nERROR: Unable to erase employee %s"), szEmployeeName);
 			return;
 		}
-		acutPrintf(_T("\nEmployee %s removed successfully"), employeeName);
-		pXrecord->close();
-
+		acutPrintf(_T("\nEmployee %s successfully removed"), szEmployeeName);
 	}
 };
 
-const TCHAR* CStep04App::m_employeeDictionaryName = _T("ASDK_EMPLOYEE_DICTIONARY");
+const TCHAR* CStep04App::g_szEmployeeDictionaryName = _T("ASDK_EMPLOYEE_DICTIONARY");
 
 //-----------------------------------------------------------------------------
 IMPLEMENT_ARX_ENTRYPOINT(CStep04App)
